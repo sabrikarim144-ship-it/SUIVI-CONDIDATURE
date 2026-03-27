@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditeur RGAA Intelligent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        .status-conforme { @apply bg-green-100 text-green-800; }
+        .status-non-conforme { @apply bg-red-100 text-red-800; }
+        .status-na { @apply bg-gray-100 text-gray-800; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div id="app" class="max-w-7xl mx-auto px-4 py-8">
+    <header class="mb-8 border-b pb-6">
+        <h1 class="text-3xl font-bold text-slate-800">Assistant d'Audit RGAA 4.1</h1>
+        <p class="text-slate-600">Outil d'évaluation interactif pour la conformité numérique.</p>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <aside class="lg:col-span-1">
+            <nav class="space-y-2 sticky top-4">
+                <button 
+                    v-for="(theme, index) in themes" 
+                    :key="index"
+                    @click="currentTheme = index"
+                    :class="['w-full text-left px-4 py-3 rounded-lg transition-all', 
+                             currentTheme === index ? 'bg-blue-600 text-white shadow-md' : 'bg-white hover:bg-blue-50 text-slate-700']"
+                >
+                    <span class="font-bold text-sm">Thème {{ index + 1 }}</span>
+                    <div class="text-xs truncate">{{ theme.title }}</div>
+                </button>
+            </nav>
+        </aside>
+
+        <main class="lg:col-span-3 space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-2xl font-semibold mb-4 text-blue-800">
+                    {{ themes[currentTheme].title }}
+                </h2>
+
+                <div v-for="critere in themes[currentTheme].criteres" :key="critere.id" class="mb-8 p-4 border rounded-lg hover:border-blue-300 transition-colors">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="pr-4">
+                            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Critère {{ critere.id }} ({{ critere.level }})</span>
+                            <p class="text-lg text-slate-800 font-medium">{{ critere.text }}</p>
+                        </div>
+                        <select v-model="auditData[critere.id].status" :class="statusClass(auditData[critere.id].status)" class="rounded border-none text-sm font-bold p-2">
+                            <option value="NT">Non Testé</option>
+                            <option value="C">Conforme</option>
+                            <option value="NC">Non Conforme</option>
+                            <option value="NA">N/A</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">RECOMMANDATIONS / MODIFICATIONS</label>
+                            <textarea v-model="auditData[critere.id].modifs" class="w-full text-sm border-gray-200 rounded-md focus:ring-blue-500" rows="3" placeholder="Quelles actions mener ?"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1">NOTES / DÉROGATIONS</label>
+                            <textarea v-model="auditData[critere.id].notes" class="w-full text-sm border-gray-200 rounded-md focus:ring-blue-500" rows="3" placeholder="Justification de dérogation..."></textarea>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 bg-blue-50 p-3 rounded text-sm">
+                        <details>
+                            <summary class="cursor-pointer font-semibold text-blue-700">Méthodologie de test</summary>
+                            <p class="mt-2 text-slate-600">{{ critere.methodo }}</p>
+                        </details>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-4">
+                <button @click="exportData" class="bg-slate-800 text-white px-6 py-2 rounded-lg hover:bg-slate-700 transition">
+                    Exporter l'audit (JSON)
+                </button>
+                <button @click="saveLocal" class="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition">
+                    Sauvegarder Brouillon
+                </button>
+            </div>
+        </main>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, onMounted } = Vue;
+
+createApp({
+    setup() {
+        const currentTheme = ref(0);
+        
+        // Structure simplifiée (à étendre avec les 106 critères du RGAA)
+        const themes = ref([
+            {
+                title: "Images",
+                criteres: [
+                    { id: "1.1", text: "Chaque image porteuse d'information a-t-elle une alternative textuelle ?", level: "A", methodo: "Vérifier la présence de l'attribut alt et sa pertinence." },
+                    { id: "1.2", text: "Chaque image de décoration est-elle ignorée par les technologies d'assistance ?", level: "A", methodo: "Vérifier alt='' ou rôle=presentation." }
+                ]
+            },
+            {
+                title: "Cadres",
+                criteres: [
+                    { id: "2.1", text: "Chaque cadre a-t-il un titre ?", level: "A", methodo: "Vérifier l'attribut title sur les iframes." }
+                ]
+            },
+            // Ajoutez ici les thématiques suivantes (Couleurs, Multimédia, Tableaux...)
+        ]);
+
+        const auditData = reactive({});
+
+        // Initialisation des données
+        themes.value.forEach(t => {
+            t.criteres.forEach(c => {
+                auditData[c.id] = {
+                    status: 'NT',
+                    modifs: '',
+                    notes: '',
+                    wcag: c.level
+                };
+            });
+        });
+
+        const statusClass = (status) => {
+            if (status === 'C') return 'bg-green-100 text-green-700';
+            if (status === 'NC') return 'bg-red-100 text-red-700';
+            if (status === 'NA') return 'bg-gray-100 text-gray-700';
+            return 'bg-yellow-50 text-yellow-700 border border-yellow-200';
+        };
+
+        const exportData = () => {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(auditData, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "audit_rgaa.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        };
+
+        const saveLocal = () => {
+            localStorage.setItem('rgaa_draft', JSON.stringify(auditData));
+            alert("Sauvegardé localement dans votre navigateur !");
+        };
+
+        onMounted(() => {
+            const saved = localStorage.getItem('rgaa_draft');
+            if (saved) {
+                Object.assign(auditData, JSON.parse(saved));
+            }
+        });
+
+        return { themes, currentTheme, auditData, statusClass, exportData, saveLocal };
+    }
+}).mount('#app');
+</script>
+</body>
+</html>
